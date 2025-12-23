@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>超级马力！Horse 发生</title>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; font-family: "Microsoft YaHei", sans-serif; }
+        #game-container { position: relative; width: 800px; height: 600px; margin: 20px auto; background: #5c94fc; border: 4px solid #fff; overflow: hidden; }
+        canvas { display: block; }
+        
+        /* 移动端控制按钮 */
+        .controls { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 20px; z-index: 10; }
+        .btn { width: 60px; height: 60px; background: rgba(255,255,255,0.7); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: pointer; user-select: none; }
+        
+        /* 结算界面 */
+        #end-screen { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.8); display: none; flex-direction: column; 
+            align-items: center; justify-content: center; color: #fff; z-index: 20; 
+        }
+        .victory-text { font-size: 32px; color: #ffcc00; text-align: center; line-height: 1.6; }
+        
+        /* 音乐控制按钮 */
+        #music-toggle {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 40px;
+            height: 40px;
+            background: rgba(255,255,255,0.7);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 20px;
+            z-index: 30;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    
+    <div class="controls">
+        <div class="btn" id="btn-left">←</div>
+        <div class="btn" id="btn-up">跳</div>
+        <div class="btn" id="btn-right">→</div>
+    </div>
+    
+    <div id="music-toggle">🎵</div>
+
+    <div id="end-screen">
+        <div class="victory-text">
+            恭喜！2026年<br>
+            <span style="font-size: 48px;">超级马力<br>Horse 发生</span><br>
+            <p style="font-size: 18px;">物资全搜集！大吉大利！</p>
+            <button onclick="location.reload()" style="padding: 10px 20px; margin-top: 20px;">再玩一次</button>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * 游戏核心逻辑
+ */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = 800;
+canvas.height = 600;
+
+// 创建音频上下文
+const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+// 音频节点
+let bgmSource = null;
+let isMusicPlaying = true;
+
+// 背景音乐 - 使用超级马里奥的经典旋律
+function playBackgroundMusic() {
+    if (!isMusicPlaying) return;
+    
+    // 创建振荡器节点
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    // 连接到音频输出
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    // 设置音量
+    gainNode.gain.value = 0.1; // 10% 音量
+    
+    // 超级马里奥经典旋律的简单版本
+    const melody = [
+        { freq: 523.25, duration: 0.2 }, // C5
+        { freq: 659.25, duration: 0.2 }, // E5
+        { freq: 783.99, duration: 0.2 }, // G5
+        { freq: 659.25, duration: 0.2 }, // E5
+        { freq: 783.99, duration: 0.2 }, // G5
+        { freq: 880.00, duration: 0.2 }, // A5
+        { freq: 987.77, duration: 0.2 }, // B5
+        { freq: 880.00, duration: 0.2 }, // A5
+        { freq: 783.99, duration: 0.2 }, // G5
+        { freq: 659.25, duration: 0.2 }, // E5
+        { freq: 523.25, duration: 0.2 }, // C5
+        { freq: 392.00, duration: 0.4 }, // G4
+    ];
+    
+    let currentTime = audioContext.currentTime;
+    
+    // 播放旋律
+    melody.forEach((note, index) => {
+        oscillator.frequency.setValueAtTime(note.freq, currentTime);
+        currentTime += note.duration;
+    });
+    
+    // 设置循环
+    oscillator.start();
+    oscillator.stop(currentTime);
+    
+    // 保存源以便后续控制
+    bgmSource = oscillator;
+    
+    // 循环播放
+    setTimeout(() => {
+        if (isMusicPlaying) {
+            playBackgroundMusic();
+        }
+    }, currentTime * 1000);
+}
+
+// 碰撞音效
+function playCollisionSound() {
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    // 设置音效
+    gainNode.gain.value = 0.2;
+    
+    // 有趣的"砰"声
+    oscillator.frequency.setValueAtTime(300, audioContext.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.1);
+    
+    // 音量衰减
+    gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+    
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.2);
+}
+
+// 跳跃音效
+function playJumpSound() {
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    // 设置音效
+    gainNode.gain.value = 0.15;
+    
+    // 跳跃音效 - 快速上升的音调
+    oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
+    oscillator.frequency.linearRampToValueAtTime(400, audioContext.currentTime + 0.1);
+    
+    // 音量衰减
+    gainNode.gain.setValueAtTime(0.15, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
+    
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.15);
+}
+
+// 金币收集音效
+function playCoinSound() {
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    // 设置音效
+    gainNode.gain.value = 0.1;
+    
+    // 金币收集的清脆声音
+    oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(1200, audioContext.currentTime + 0.1);
+    
+    // 音量衰减
+    gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+    
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.2);
+}
+
+// 音乐切换功能
+document.getElementById('music-toggle').addEventListener('click', function() {
+    isMusicPlaying = !isMusicPlaying;
+    this.textContent = isMusicPlaying ? '🎵' : '🔇';
+    
+    if (isMusicPlaying) {
+        playBackgroundMusic();
+    }
+});
+
+// 加载主角图片 - 改为同文件夹下的 horse.png
+let horseImg = new Image();
+horseImg.src = 'horse.png'; // 使用同文件夹下的 horse.png 图片
+
+// 加载砖块图片 - 添加zhuankuai.png图片
+let brickImg = new Image();
+brickImg.src = 'zhuankuai.png'; // 使用同文件夹下的 zhuankuai.png 图片
+
+// 加载管道图片 - 添加guandao.png图片
+let pipeImg = new Image();
+pipeImg.src = 'guandao.png'; // 使用同文件夹下的 guandao.png 图片
+
+// 加载背景图片 - 添加beijing.png图片
+let bgImg = new Image();
+bgImg.src = 'beijing.png'; // 使用同文件夹下的 beijing.png 图片
+
+// 加载云朵图片
+let cloud1Img = new Image();
+cloud1Img.src = 'yunduo1.png'; // 使用同文件夹下的 yunduo1.png 图片
+
+let cloud2Img = new Image();
+cloud2Img.src = 'yunduo2.png'; // 使用同文件夹下的 yunduo2.png 图片
+
+// 加载蘑菇图片 - 添加mogu.png图片
+let mushroomImg = new Image();
+mushroomImg.src = 'mogu.png'; // 使用同文件夹下的 mogu.png 图片
+
+// 加载金币图片 - 添加jinbi.png图片
+let coinImg = new Image();
+coinImg.src = 'jinbi.png'; // 使用同文件夹下的 jinbi.png 图片
+
+// 加载吉字图片 - 添加ji.png图片
+let jiImg = new Image();
+jiImg.src = 'ji.png'; // 使用同文件夹下的 ji.png 图片
+
+// 加载橘子图片 - 添加juzi.png图片
+let juziImg = new Image();
+juziImg.src = 'juzi.png'; // 使用同文件夹下的 juzi.png 图片
+
+// 加载福字图片 - 添加fu.png图片
+let fuImg = new Image();
+fuImg.src = 'fu.png'; // 使用同文件夹下的 fu.png 图片
+
+// 加载财字图片 - 添加cai.png图片
+let caiImg = new Image();
+caiImg.src = 'cai.png'; // 使用同文件夹下的 cai.png 图片
+
+// 加载旺字图片 - 添加wang.png图片
+let wangImg = new Image();
+wangImg.src = 'wang.png'; // 使用同文件夹下的 wang.png 图片
+
+// 加载运字图片 - 添加yun.png图片
+let yunImg = new Image();
+yunImg.src = 'yun.png'; // 使用同文件夹下的 yun.png 图片
+
+// 加载顺字图片 - 添加shun.png图片
+let shunImg = new Image();
+shunImg.src = 'shun.png'; // 使用同文件夹下的 shun.png 图片
+
+// 加载单个砖块图片 - 添加dangezhuankuai.png图片
+let dangezhuankuaiImg = new Image();
+dangezhuankuaiImg.src = 'dangezhuankuai.png'; // 使用同文件夹下的 dangezhuankuai.png 图片
+
+// 加载物品图片
+let hongbaoImg = new Image();
+hongbaoImg.src = 'hongbao.png'; // 使用同文件夹下的 hongbao.png 图片
+
+let yuanbaoImg = new Image();
+yuanbaoImg.src = 'yuanbao.png'; // 使用同文件夹下的 yuanbao.png 图片
+
+let dogImg = new Image();
+dogImg.src = 'dog.png'; // 使用同文件夹下的 dog.png 图片
+
+let yuImg = new Image();
+yuImg.src = 'yu.png'; // 使用同文件夹下的 yu.png 图片
+
+let liuliuImg = new Image();
+liuliuImg.src = '666.png'; // 使用同文件夹下的 666.png 图片
+
+// 标记图片是否加载成功
+let horseImgLoaded = false;
+let brickImgLoaded = false;
+let pipeImgLoaded = false;
+let bgImgLoaded = false;
+let cloud1ImgLoaded = false;
+let cloud2ImgLoaded = false;
+let mushroomImgLoaded = false;
+let coinImgLoaded = false;
+let jiImgLoaded = false;
+let juziImgLoaded = false;
+let fuImgLoaded = false;
+let caiImgLoaded = false;
+let wangImgLoaded = false;
+let yunImgLoaded = false;
+let shunImgLoaded = false;
+let dangezhuankuaiImgLoaded = false;
+let hongbaoImgLoaded = false;
+let yuanbaoImgLoaded = false;
+let dogImgLoaded = false;
+let yuImgLoaded = false;
+let liuliuImgLoaded = false;
+
+horseImg.onload = function() {
+    horseImgLoaded = true;
+    console.log('主角图片加载成功');
+};
+horseImg.onerror = function() {
+    console.log('主角图片加载失败，将使用占位符');
+};
+
+brickImg.onload = function() {
+    brickImgLoaded = true;
+    console.log('砖块图片加载成功');
+};
+brickImg.onerror = function() {
+    console.log('砖块图片加载失败，将使用颜色填充');
+};
+
+pipeImg.onload = function() {
+    pipeImgLoaded = true;
+    console.log('管道图片加载成功');
+};
+pipeImg.onerror = function() {
+    console.log('管道图片加载失败，将使用颜色填充');
+};
+
+bgImg.onload = function() {
+    bgImgLoaded = true;
+    console.log('背景图片加载成功');
+};
+bgImg.onerror = function() {
+    console.log('背景图片加载失败，将使用颜色填充');
+};
+
+cloud1Img.onload = function() {
+    cloud1ImgLoaded = true;
+    console.log('云朵1图片加载成功');
+};
+cloud1Img.onerror = function() {
+    console.log('云朵1图片加载失败');
+};
+
+cloud2Img.onload = function() {
+    cloud2ImgLoaded = true;
+    console.log('云朵2图片加载成功');
+};
+cloud2Img.onerror = function() {
+    console.log('云朵2图片加载失败');
+};
+
+mushroomImg.onload = function() {
+    mushroomImgLoaded = true;
+    console.log('蘑菇图片加载成功');
+};
+mushroomImg.onerror = function() {
+    console.log('蘑菇图片加载失败，将使用颜色填充');
+};
+
+coinImg.onload = function() {
+    coinImgLoaded = true;
+    console.log('金币图片加载成功');
+};
+coinImg.onerror = function() {
+    console.log('金币图片加载失败，将使用颜色填充');
+};
+
+jiImg.onload = function() {
+    jiImgLoaded = true;
+    console.log('吉字图片加载成功');
+};
+jiImg.onerror = function() {
+    console.log('吉字图片加载失败，将使用颜色填充');
+};
+
+juziImg.onload = function() {
+    juziImgLoaded = true;
+    console.log('橘子图片加载成功');
+};
+juziImg.onerror = function() {
+    console.log('橘子图片加载失败，将使用文字显示');
+};
+
+fuImg.onload = function() {
+    fuImgLoaded = true;
+    console.log('福字图片加载成功');
+};
+fuImg.onerror = function() {
+    console.log('福字图片加载失败，将使用颜色填充');
+};
+
+caiImg.onload = function() {
+    caiImgLoaded = true;
+    console.log('财字图片加载成功');
+};
+caiImg.onerror = function() {
+    console.log('财字图片加载失败，将使用颜色填充');
+};
+
+wangImg.onload = function() {
+    wangImgLoaded = true;
+    console.log('旺字图片加载成功');
+};
+wangImg.onerror = function() {
+    console.log('旺字图片加载失败，将使用颜色填充');
+};
+
+yunImg.onload = function() {
+    yunImgLoaded = true;
+    console.log('运字图片加载成功');
+};
+yunImg.onerror = function() {
+    console.log('运字图片加载失败，将使用颜色填充');
+};
+
+shunImg.onload = function() {
+    shunImgLoaded = true;
+    console.log('顺字图片加载成功');
+};
+shunImg.onerror = function() {
+    console.log('顺字图片加载失败，将使用颜色填充');
+};
+
+dangezhuankuaiImg.onload = function() {
+    dangezhuankuaiImgLoaded = true;
+    console.log('单个砖块图片加载成功');
+};
+dangezhuankuaiImg.onerror = function() {
+    console.log('单个砖块图片加载失败，将使用颜色填充');
+};
+
+hongbaoImg.onload = function() {
+    hongbaoImgLoaded = true;
+    console.log('红包图片加载成功');
+};
+hongbaoImg.onerror = function() {
+    console.log('红包图片加载失败，将使用文字显示');
+};
+
+yuanbaoImg.onload = function() {
+    yuanbaoImgLoaded = true;
+    console.log('元宝图片加载成功');
+};
+yuanbaoImg.onerror = function() {
+    console.log('元宝图片加载失败，将使用文字显示');
+};
+
+dogImg.onload = function() {
+    dogImgLoaded = true;
+    console.log('狗图片加载成功');
+};
+dogImg.onerror = function() {
+    console.log('狗图片加载失败，将使用文字显示');
+};
+
+yuImg.onload = function() {
+    yuImgLoaded = true;
+    console.log('鱼图片加载成功');
+};
+yuImg.onerror = function() {
+    console.log('鱼图片加载失败，将使用文字显示');
+};
+
+liuliuImg.onload = function() {
+    liuliuImgLoaded = true;
+    console.log('666图片加载成功');
+};
+liuliuImg.onerror = function() {
+    console.log('666图片加载失败，将使用文字显示');
+};
+
+// 游戏配置
+const config = {
+    gravity: 0.8,
+    jumpStrength: -15,
+    doubleJumpStrength: -10, // 二连跳强度，比一段跳弱一些
+    speed: 5,
+    groundY: 520
+};
+
+// 初始化游戏状态函数
+function initGame() {
+    // 重置资源状态
+    inventory = {
+        "吉": false, "福": false, "财": false, "旺": false, "运": false, "顺": false, "coins": 0
+    };
+
+    // 重置主角状态
+    player.x = 50;
+    player.y = 600; // 初始在水管下
+    player.vx = 0;
+    player.vy = 0;
+    player.isJumping = false;
+    player.jumpCount = 0;
+    player.canDoubleJump = false;
+    player.state = 'entering';
+    player.faceRight = true;
+
+    // 重置砖块收集状态
+    blocks.forEach(block => {
+        block.collected = false;
+    });
+
+    // 重置金币收集状态
+    coins.forEach(coin => {
+        coin.collected = false;
+    });
+
+    // 重置蘑菇位置
+    enemy.x = 400;
+    enemy.y = 490;
+    enemy.dir = 1;
+
+    // 重置云朵位置
+    clouds[0].x = 100;
+    clouds[0].dir = 1;
+    clouds[1].x = 600;
+    clouds[1].dir = -1;
+
+    // 隐藏结束界面
+    document.getElementById('end-screen').style.display = 'none';
+    
+    // 开始播放背景音乐
+    playBackgroundMusic();
+}
+
+// 资源状态
+let inventory = {
+    "吉": false, "福": false, "财": false, "旺": false, "运": false, "顺": false, "coins": 0
+};
+
+// 1. 定义主角 (设计稿中的小马)
+const player = {
+    x: 50,
+    y: 600, // 初始在水管下
+    w: 50,
+    h: 60,
+    vx: 0,
+    vy: 0,
+    isJumping: false,
+    jumpCount: 0, // 跳跃次数，用于实现二连跳
+    canDoubleJump: false, // 是否可以二连跳
+    state: 'entering', // entering, playing, finished
+    faceRight: true // 新增：控制小马朝向，true为朝右，false为朝左
+};
+
+// 2. 定义砖块物资地图
+const blocks = [
+    { x: 100, y: 350, type: '吉', item: '橘子', collected: false },
+    { x: 140, y: 350, type: '', item: '', collected: false }, // 中间连接色块，无字无物品，紧挨着"吉"字砖块
+    { x: 180, y: 350, type: '福', item: '红包', collected: false }, // 紧挨着中间连接色块
+    
+    // "财"字砖块、"旺"字砖块以及中间的色块（3个），整体向左移动15像素
+    { x: 375, y: 300, type: '财', item: '金元宝', collected: false }, // 原x:390，向左移动15像素
+    { x: 415, y: 300, type: '', item: '', collected: false }, // 中间连接色块，原x:430，向左移动15像素
+    { x: 455, y: 300, type: '旺', item: '狗', collected: false }, // 原x:470，向左移动15像素
+    
+    // "运"字的色块，整体向左移动15像素
+    { x: 585, y: 250, type: '运', item: '鱼', collected: false }, // 原x:600，向左移动15像素
+    
+    // "顺"字的色块以及它两边的色块（3个），整体向左移动15像素
+    { x: 665, y: 250, type: '', item: '', collected: false }, // 左边纯色块，原x:680，向左移动15像素
+    { x: 705, y: 250, type: '顺', item: '666', collected: false }, // "顺"字砖块，原x:720，向左移动15像素
+    { x: 745, y: 250, type: '', item: '', collected: false }  // 右边纯色块，原x:760，向左移动15像素
+];
+
+// 3. 定义金币和蘑菇
+const coins = [
+    { x: 670, y: 460, collected: false },
+    { x: 702, y: 420, collected: false },
+    { x: 740, y: 380, collected: false }
+];
+
+const enemy = { x: 400, y: 490, w: 30, h: 30, speed: 2, dir: 1 };
+
+// 4. 定义两朵云
+const clouds = [
+    { 
+        x: 100, // 偏左侧起始位置
+        y: 50, // Y坐标调整为0
+        startX: 100, // 起始位置
+        minX: 87, // 最小X位置 - 范围减半
+        maxX: 113, // 最大X位置 - 范围减半
+        width: 120, // 放大为原本的1.5倍 (80 * 1.5 = 120)
+        height: 90, // 放大为原本的1.5倍 (60 * 1.5 = 90)
+        speed: 0.1, // 移动速度改为0.1像素每帧
+        dir: 1, // 移动方向：1向右，-1向左
+        type: 1 // 云朵类型：1表示yunduo1.png
+    },
+    { 
+        x: 600, // 偏右侧起始位置
+        y: 100, // Y坐标调整为100
+        startX: 600, // 起始位置
+        minX: 587, // 最小X位置 - 范围减半
+        maxX: 613, // 最大X位置 - 范围减半
+        width: 120, // 放大为原本的1.5倍 (100 * 1.2 = 120)
+        height: 84, // 放大为原本的1.2倍 (70 * 1.2 = 84)
+        speed: 0.1, // 移动速度改为0.1像素每帧
+        dir: -1, // 移动方向：-1向左
+        type: 2 // 云朵类型：2表示yunduo2.png
+    }
+];
+
+// 检测矩形碰撞函数
+function checkCollision(rect1, rect2) {
+    return rect1.x < rect2.x + rect2.w &&
+           rect1.x + rect1.w > rect2.x &&
+           rect1.y < rect2.y + rect2.h &&
+           rect1.y + rect1.h > rect2.y;
+}
+
+// 动画：水管滑出
+function pipeAnimation() {
+    if (player.state === 'entering') {
+        player.y -= 2;
+        if (player.y <= config.groundY - player.h) {
+            player.state = 'playing';
+        }
+    }
+}
+
+// 更新云朵位置
+function updateClouds() {
+    clouds.forEach(cloud => {
+        // 更新云朵位置
+        cloud.x += cloud.speed * cloud.dir;
+        
+        // 边界检测，让云朵在小范围内来回移动
+        if (cloud.x > cloud.maxX) {
+            cloud.x = cloud.maxX;
+            cloud.dir = -1; // 向右移动到边界后改为向左移动
+        } else if (cloud.x < cloud.minX) {
+            cloud.x = cloud.minX;
+            cloud.dir = 1; // 向左移动到边界后改为向右移动
+        }
+    });
+}
+
+// 核心更新逻辑
+function update() {
+    if (player.state === 'entering') {
+        pipeAnimation();
+        return;
+    }
+
+    if (player.state === 'finished') return;
+
+    // 更新云朵位置
+    updateClouds();
+
+    // 物理运动
+    player.vy += config.gravity;
+    player.y += player.vy;
+    player.x += player.vx;
+
+    // 地面检测
+    if (player.y > config.groundY - player.h) {
+        player.y = config.groundY - player.h;
+        player.vy = 0;
+        player.isJumping = false;
+        player.jumpCount = 0; // 落地后重置跳跃次数
+        player.canDoubleJump = false; // 落地后不能二连跳
+    }
+
+    // 碰撞砖块检测 (头顶撞击)
+    let hitBrick = false;
+    blocks.forEach(b => {
+        if (!b.collected && 
+            player.x + player.w > b.x && player.x < b.x + 40 &&
+            player.vy < 0 && 
+            player.y < b.y + 40 && player.y > b.y) {
+                b.collected = true;
+                // 只有有type的砖块才添加到inventory
+                if (b.type) {
+                    inventory[b.type] = true;
+                }
+                player.vy = 2; // 撞击回弹
+                checkWinCondition();
+                hitBrick = true;
+        }
+    });
+    
+    // 如果碰到了砖块，播放碰撞音效
+    if (hitBrick) {
+        playCollisionSound();
+    }
+
+    // 碰撞金币检测
+    coins.forEach(c => {
+        if (!c.collected && 
+            Math.hypot(player.x - c.x, player.y - c.y) < 30) {
+            c.collected = true;
+            inventory.coins++;
+            checkWinCondition();
+            playCoinSound(); // 播放金币收集音效
+        }
+    });
+
+    // 蘑菇移动与碰撞
+    enemy.x += enemy.speed * enemy.dir;
+    if (enemy.x > 600 || enemy.x < 300) enemy.dir *= -1;
+    
+    // 检测小马是否碰到蘑菇 - 使用矩形碰撞检测
+    if (checkCollision(player, enemy)) {
+        // 碰到蘑菇，播放碰撞音效
+        playCollisionSound();
+        // 短暂延迟后重新开始游戏
+        setTimeout(() => {
+            initGame();
+        }, 300);
+        return;
+    }
+}
+
+function checkWinCondition() {
+    // 只检查有type的砖块
+    const allItems = blocks.filter(b => b.type).every(b => b.collected);
+    if (allItems && inventory.coins >= 3) {
+        player.state = 'finished';
+        document.getElementById('end-screen').style.display = 'flex';
+    }
+}
+
+// 跳跃函数
+function jump() {
+    // 如果在地面上，进行第一次跳跃
+    if (player.jumpCount === 0 && !player.isJumping) {
+        player.vy = config.jumpStrength;
+        player.isJumping = true;
+        player.jumpCount = 1;
+        player.canDoubleJump = true; // 第一次跳跃后可以二连跳
+        playJumpSound(); // 播放跳跃音效
+        return true;
+    }
+    // 如果在空中且可以二连跳，进行第二次跳跃
+    else if (player.canDoubleJump && player.jumpCount === 1) {
+        player.vy = config.doubleJumpStrength;
+        player.jumpCount = 2;
+        player.canDoubleJump = false; // 二连跳后不能再跳
+        playJumpSound(); // 播放跳跃音效
+        return true;
+    }
+    return false;
+}
+
+// 绘制云朵
+function drawClouds() {
+    clouds.forEach(cloud => {
+        if (cloud.type === 1 && cloud1ImgLoaded) {
+            // 绘制第一朵云
+            ctx.drawImage(cloud1Img, cloud.x, cloud.y, cloud.width, cloud.height);
+        } else if (cloud.type === 2 && cloud2ImgLoaded) {
+            // 绘制第二朵云
+            ctx.drawImage(cloud2Img, cloud.x, cloud.y, cloud.width, cloud.height);
+        } else {
+            // 如果图片未加载，使用简单的圆形作为占位符
+            ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+            ctx.beginPath();
+            ctx.ellipse(cloud.x + cloud.width/2, cloud.y + cloud.height/2, cloud.width/2, cloud.height/2, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    });
+}
+
+// 绘制主角（带反转功能）
+function drawPlayer() {
+    if (horseImgLoaded) {
+        // 保存当前上下文状态
+        ctx.save();
+        
+        // 如果小马朝左，则进行水平翻转
+        if (!player.faceRight) {
+            // 先平移到小马中心，然后水平翻转，再平移回来
+            ctx.translate(player.x + player.w/2, player.y + player.h/2);
+            ctx.scale(-1, 1); // 水平翻转
+            ctx.translate(-(player.x + player.w/2), -(player.y + player.h/2));
+        }
+        
+        // 绘制小马图片
+        ctx.drawImage(horseImg, player.x, player.y, player.w, player.h);
+        
+        // 恢复上下文状态
+        ctx.restore();
+    } else {
+        // 如果图片未加载，使用原来的绘制方法
+        ctx.fillStyle = "#fff"; // 占位符
+        ctx.fillRect(player.x, player.y, player.w, player.h);
+        ctx.fillStyle = "#000";
+        ctx.fillText("HORSE", player.x + 5, player.y + 30);
+    }
+}
+
+// 绘图
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 画背景 - 使用beijing.png图片
+    if (bgImgLoaded) {
+        // 如果图片已加载，使用图片绘制背景
+        ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+    } else {
+        // 如果图片未加载，使用原来的颜色填充
+        ctx.fillStyle = "#5c94fc"; // 游戏容器背景色
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // 绘制云朵
+    drawClouds();
+
+    // 画背景 (简化版设计稿)
+    // 地面部分 - 使用zhuankuai.png图片
+    if (brickImgLoaded) {
+        // 如果图片已加载，使用图片绘制地面
+        ctx.drawImage(brickImg, 0, config.groundY, canvas.width, 80);
+    } else {
+        // 如果图片未加载，使用原来的颜色填充
+        ctx.fillStyle = "#228b22"; // 地面
+        ctx.fillRect(0, config.groundY, canvas.width, 80);
+    }
+    
+    // 画水管 - 使用guandao.png图片
+    if (pipeImgLoaded) {
+        // 如果图片已加载，使用图片绘制水管
+        ctx.drawImage(pipeImg, 40, 520, 60, 80);
+    } else {
+        // 如果图片未加载，使用原来的颜色填充
+        ctx.fillStyle = "#2e7d32";
+        ctx.fillRect(40, 520, 60, 80);
+    }
+
+    // 画砖块
+    blocks.forEach(b => {
+        // 保存当前上下文状态
+        ctx.save();
+        
+        // 设置透明度来区分收集状态
+        ctx.globalAlpha = b.collected ? 0.5 : 1;
+        
+        // 根据砖块类型选择对应的图片
+        if (b.type === '吉' && jiImgLoaded) {
+            // 使用ji.png图片绘制"吉"字砖块
+            ctx.drawImage(jiImg, b.x, b.y, 40, 40);
+        } else if (b.type === '福' && fuImgLoaded) {
+            // 使用fu.png图片绘制"福"字砖块
+            ctx.drawImage(fuImg, b.x, b.y, 40, 40);
+        } else if (b.type === '财' && caiImgLoaded) {
+            // 使用cai.png图片绘制"财"字砖块
+            ctx.drawImage(caiImg, b.x, b.y, 40, 40);
+        } else if (b.type === '旺' && wangImgLoaded) {
+            // 使用wang.png图片绘制"旺"字砖块
+            ctx.drawImage(wangImg, b.x, b.y, 40, 40);
+        } else if (b.type === '运' && yunImgLoaded) {
+            // 使用yun.png图片绘制"运"字砖块
+            ctx.drawImage(yunImg, b.x, b.y, 40, 40);
+        } else if (b.type === '顺' && shunImgLoaded) {
+            // 使用shun.png图片绘制"顺"字砖块
+            ctx.drawImage(shunImg, b.x, b.y, 40, 40);
+        } else if (b.type === '' && dangezhuankuaiImgLoaded) {
+            // 空白色块使用dangezhuankuai.png图片
+            ctx.drawImage(dangezhuankuaiImg, b.x, b.y, 40, 40);
+        } else {
+            // 如果图片未加载，使用颜色填充并保持形状
+            ctx.fillStyle = "#ff9800"; // 保持原来的颜色，通过透明度来区分
+            ctx.fillRect(b.x, b.y, 40, 40);
+            
+            // 恢复透明度，确保文字显示正常
+            ctx.globalAlpha = 1;
+            
+            // 只绘制有type的砖块的文字
+            if (b.type) {
+                ctx.fillStyle = b.collected ? "#ffffff80" : "#fff"; // 文字也变淡
+                ctx.font = "16px Microsoft YaHei";
+                ctx.textAlign = "center";
+                ctx.fillText(b.type, b.x + 20, b.y + 25);
+            }
+        }
+        
+        // 恢复透明度，确保物品名称显示正常
+        ctx.globalAlpha = 1;
+        
+        // 绘制物品名称（收集后显示）
+        if(b.collected && b.item) {
+            // 特殊处理"橘子"图片
+            if (b.item === '橘子' && juziImgLoaded) {
+                // 调整"橘子"图片尺寸为正方形，高度比宽度多1个像素
+                const squareSize = 40; // 正方形边长
+                const extraHeight = 1; // 额外高度
+                const totalHeight = squareSize + extraHeight; // 总高度
+                
+                // 计算位置使图片在砖块上方居中显示
+                const xPos = b.x; // 与砖块左对齐
+                const yPos = b.y - totalHeight - 5; // 在砖块上方5像素处
+                
+                ctx.drawImage(juziImg, xPos, yPos, squareSize, totalHeight);
+            } 
+            // 处理"红包"图片
+            else if (b.item === '红包' && hongbaoImgLoaded) {
+                // 调整"红包"图片尺寸为正方形，高度比宽度多1个像素
+                const squareSize = 40; // 正方形边长
+                const extraHeight = 1; // 额外高度
+                const totalHeight = squareSize + extraHeight; // 总高度
+                
+                // 计算位置使图片在砖块上方居中显示
+                const xPos = b.x; // 与砖块左对齐
+                const yPos = b.y - totalHeight - 5; // 在砖块上方5像素处
+                
+                ctx.drawImage(hongbaoImg, xPos, yPos, squareSize, totalHeight);
+            }
+            // 处理"金元宝"图片
+            else if (b.item === '金元宝' && yuanbaoImgLoaded) {
+                // 调整"金元宝"图片尺寸为正方形，高度比宽度多1个像素
+                const squareSize = 40; // 正方形边长
+                const extraHeight = 1; // 额外高度
+                const totalHeight = squareSize + extraHeight; // 总高度
+                
+                // 计算位置使图片在砖块上方居中显示
+                const xPos = b.x; // 与砖块左对齐
+                const yPos = b.y - totalHeight - 5; // 在砖块上方5像素处
+                
+                ctx.drawImage(yuanbaoImg, xPos, yPos, squareSize, totalHeight);
+            }
+            // 处理"狗"图片
+            else if (b.item === '狗' && dogImgLoaded) {
+                // 调整"狗"图片尺寸为正方形，高度比宽度多1个像素
+                const squareSize = 40; // 正方形边长
+                const extraHeight = 1; // 额外高度
+                const totalHeight = squareSize + extraHeight; // 总高度
+                
+                // 计算位置使图片在砖块上方居中显示
+                const xPos = b.x; // 与砖块左对齐
+                const yPos = b.y - totalHeight - 5; // 在砖块上方5像素处
+                
+                ctx.drawImage(dogImg, xPos, yPos, squareSize, totalHeight);
+            }
+            // 处理"鱼"图片
+            else if (b.item === '鱼' && yuImgLoaded) {
+                // 调整"鱼"图片尺寸为正方形，高度比宽度多1个像素
+                const squareSize = 40; // 正方形边长
+                const extraHeight = 1; // 额外高度
+                const totalHeight = squareSize + extraHeight; // 总高度
+                
+                // 计算位置使图片在砖块上方居中显示
+                const xPos = b.x; // 与砖块左对齐
+                const yPos = b.y - totalHeight - 5; // 在砖块上方5像素处
+                
+                ctx.drawImage(yuImg, xPos, yPos, squareSize, totalHeight);
+            }
+            // 处理"666"图片
+            else if (b.item === '666' && liuliuImgLoaded) {
+                // 调整"666"图片尺寸为正方形，高度比宽度多1个像素
+                const squareSize = 40; // 正方形边长
+                const extraHeight = 1; // 额外高度
+                const totalHeight = squareSize + extraHeight; // 总高度
+                
+                // 计算位置使图片在砖块上方居中显示
+                const xPos = b.x; // 与砖块左对齐
+                const yPos = b.y - totalHeight - 5; // 在砖块上方5像素处
+                
+                ctx.drawImage(liuliuImg, xPos, yPos, squareSize, totalHeight);
+            }
+            else {
+                // 其他物品仍用文字显示
+                ctx.fillStyle = "#000";
+                ctx.font = "12px Microsoft YaHei";
+                ctx.textAlign = "center";
+                ctx.fillText(b.item, b.x + 20, b.y - 5);
+            }
+        }
+        
+        // 恢复上下文状态
+        ctx.restore();
+    });
+
+    // 画金币 - 使用jinbi.png图片
+    coins.forEach(c => {
+        if(!c.collected) {
+            if (coinImgLoaded) {
+                // 如果图片已加载，使用图片绘制金币
+                // 金币大小设为26x26像素，与原来的圆形大小相近
+                ctx.drawImage(coinImg, c.x - 8, c.y - 8, 26, 26);
+            } else {
+                // 如果图片未加载，使用原来的绘制方法
+                ctx.fillStyle = "#ffd700";
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, 8, 0, Math.PI*2);
+                ctx.fill();
+            }
+        }
+    });
+
+    // 画蘑菇 (敌人) - 使用mogu.png图片
+    if (mushroomImgLoaded) {
+        // 如果图片已加载，使用图片绘制蘑菇
+        ctx.drawImage(mushroomImg, enemy.x, enemy.y, enemy.w, enemy.h);
+    } else {
+        // 如果图片未加载，使用原来的颜色填充
+        ctx.fillStyle = "#e57373";
+        ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+    }
+
+    // 画主角（使用新的绘制函数）
+    drawPlayer();
+}
+
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+// 控制逻辑
+const keys = {};
+window.addEventListener('keydown', e => {
+    if(e.key === 'ArrowLeft') {
+        player.vx = -config.speed;
+        player.faceRight = false; // 朝左
+    }
+    if(e.key === 'ArrowRight') {
+        player.vx = config.speed;
+        player.faceRight = true; // 朝右
+    }
+    if(e.key === 'ArrowUp') {
+        jump(); // 调用统一的跳跃函数
+    }
+});
+window.addEventListener('keyup', e => {
+    if(e.key === 'ArrowLeft' || e.key === 'ArrowRight') player.vx = 0;
+});
+
+// 绑定按钮
+document.getElementById('btn-left').ontouchstart = () => {
+    player.vx = -config.speed;
+    player.faceRight = false; // 朝左
+};
+document.getElementById('btn-right').ontouchstart = () => {
+    player.vx = config.speed;
+    player.faceRight = true; // 朝右
+};
+document.getElementById('btn-up').ontouchstart = () => {
+    jump(); // 调用统一的跳跃函数
+};
+document.body.ontouchend = () => player.vx = 0;
+
+// 初始化游戏（稍等用户交互以解决音频自动播放限制）
+document.addEventListener('click', function initOnFirstClick() {
+    // 移除事件监听器，只初始化一次
+    document.removeEventListener('click', initOnFirstClick);
+    // 恢复音频上下文（某些浏览器需要用户交互）
+    if (audioContext.state === 'suspended') {
+        audioContext.resume();
+    }
+    initGame();
+    loop();
+}, { once: true });
+
+// 如果用户直接按键也触发初始化
+document.addEventListener('keydown', function initOnFirstKeydown() {
+    document.removeEventListener('keydown', initOnFirstKeydown);
+    if (audioContext.state === 'suspended') {
+        audioContext.resume();
+    }
+    initGame();
+    loop();
+}, { once: true });
+</script>
+</body>
+</html>
